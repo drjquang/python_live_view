@@ -1,0 +1,68 @@
+import ttkbootstrap as ttk
+from ttkbootstrap.tableview import Tableview
+from ttkbootstrap.constants import *
+import socket
+import threading
+
+HEADER = 64
+FORMAT = 'utf-8'
+PORT = 5050
+SERVER = socket.gethostbyname(socket.gethostname())
+ADDR = (SERVER, PORT)
+DISCONNECT_MESSAGE = '!DISCONNECTED'
+
+
+class MainWindow(ttk.Window):
+    def __init__(self):
+        super().__init__()
+        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        self.geometry("640x240")
+        self.title("Client")
+
+        self.create_frame_connect().pack(fill="x", expand=True)
+        self.create_frame_send().pack(fill="x", expand=True)
+
+    def on_send_button_clicked(self):
+        msg = self.entry_content.get()
+        self.entry_content.delete(0, END)
+        message = msg.encode(FORMAT)
+        msg_length = len(message)
+        send_length = str(msg_length).encode(FORMAT)
+        send_length += b' ' * (HEADER - len(send_length))
+        self.client.send(send_length)
+        self.client.send(message)
+
+        print(self.client.recv(2048).decode(FORMAT))
+
+    def on_connect_button_clicked(self):
+        self.lbl_status.configure(text=f"Connecting to {SERVER}:{PORT}")
+        self.client.connect(ADDR)
+
+    def create_frame_connect(self) -> ttk.Frame:
+        """ Create and return a frame that contains a button and a label """
+        self.frame_connect = ttk.Frame(self)
+        self.btn_connect = ttk.Button(self.frame_connect, text="Start", command=self.on_connect_button_clicked)
+        self.lbl_status = ttk.Label(self.frame_connect, background="lightgrey", anchor="center")
+
+        self.btn_connect.pack(side='left', padx=10, pady=10)
+        self.lbl_status.pack(side='left', fill='x', expand=True, padx=10, pady=10)
+
+        return self.frame_connect
+
+    def create_frame_send(self) -> ttk.Frame:
+        """ Create and return a frame that contains a button and an entry """
+        self.frame_send = ttk.Frame(self)
+        self.btn_send = ttk.Button(self.frame_send, text="Send", command=self.on_send_button_clicked)
+        self.entry_content = ttk.Entry(self.frame_send, background="lightgrey")
+
+        self.btn_send.pack(side='left', padx=10, pady=10)
+        self.entry_content.pack(side='left', fill='x', expand=True, padx=10, pady=10)
+
+        return self.frame_send
+
+
+if __name__ == "__main__":
+    main_window = MainWindow()
+    main_window.mainloop()
