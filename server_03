@@ -1,0 +1,163 @@
+import ttkbootstrap as ttk
+from ttkbootstrap.tableview import Tableview
+from ttkbootstrap.constants import *
+import socket
+import threading
+from queue import Queue
+from enum import Enum, auto
+
+HEADER = 64
+FORMAT = 'utf-8'
+PORT = 5050
+SERVER = socket.gethostbyname(socket.gethostname())
+ADDR = (SERVER, PORT)
+DISCONNECT_MESSAGE = '!DISCONNECTED'
+
+
+class TicketPurpose(Enum):
+    UPDATE_PROGRESS_TEXT = auto()
+    UPDATE_TABLE_RECORD = auto()
+
+
+class Ticket:
+    def __init__(self, ticket_type: TicketPurpose, ticket_value: tuple):
+        self.ticket_type = ticket_type
+        self.ticket_value = ticket_value
+
+
+class MainWindow(ttk.Window):
+    def __init__(self):
+        super().__init__()
+        self.queue_message = Queue()
+        self.connected_clients = []
+        self.clients_addr = []
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server.bind(ADDR)
+
+        self.geometry("640x560+0+0")
+        self.title("Live view")
+        style = ttk.Style()
+        style.configure("Treeview.Heading", background="lightgreen", foreground="gray")
+
+        self.create_frame_button().pack(fill="x", expand=True, anchor=N, pady=10)
+        self.create_frame_table().pack(fill="x", expand=True, anchor=N, pady=10)
+        self.create_frame_record().pack(fill="x", expand=True, anchor=N, pady=10)
+
+        self.bind("<<CheckQueue>>", self.check_queue)
+
+    def check_queue(self, event):
+        """ Check queue, pull out data and set label text """
+        msg: Ticket
+        msg = self.queue_message.get()
+        if msg.ticket_type == TicketPurpose.UPDATE_PROGRESS_TEXT:
+            # Write to table connection to acknowledge client connected
+            self.table_connection.insert('', ttk.END, values=msg.ticket_value)
+
+            # Write initial value to table record as placeholder
+            self.table_record.insert('', ttk.END, values=("unknown", "unknown", 0, 0, 0))
+        elif msg.ticket_type == TicketPurpose.UPDATE_TABLE_RECORD:
+            # print(msg.ticket_value[0])
+            # print(msg.ticket_value[1])
+            # print(self.clients_addr.index(msg.ticket_value[0]))
+
+            # Set the row of record table
+            row_index = self.clients_addr.index(msg.ticket_value[0]) + 1
+            selected_row = f'I{row_index:03d}'
+            self.table_record.item(selected_row, values=msg.ticket_value[1].split(','))
+
+    def on_start_button_clicked(self):
+        self.lbl_status.configure(text="Server is running ...")
+        serve_thread = threading.Thread(target=self.start_server, daemon=True)
+        serve_thread.start()
+
+    def start_server(self):
+        self.server.listen()
+        print(f'[LISTENING] Server is listening on {SERVER}:{PORT}')
+        while True:
+            conn, addr = self.server.accept()
+            self.connected_clients.append((conn, addr))
+            self.clients_addr.append(addr)
+            # -------------------------------------------------------------------------------------------
+            ticket = Ticket(ticket_type=TicketPurpose.UPDATE_PROGRESS_TEXT,
+                            ticket_value=addr)
+            self.queue_message.put(ticket)
+            self.event_generate("<<CheckQueue>>")
+            # -------------------------------------------------------------------------------------------
+            for client in self.connected_clients:
+                print(f"Client INFO ----- {client[1]}")
+            thread = threading.Thread(target=self.handle_client, args=(conn, addr), daemon=True)
+            thread.start()
+            print(f'[ACTIVE CONNECTIONs] {threading.active_count() - 1}')
+
+    def handle_client(self, conn, addr):
+        print(f'[NEW CONNECTION] {addr} connected')
+        isConnected = True
+        while isConnected:
+            msg_length = conn.recv(HEADER).decode(FORMAT)
+            if msg_length:
+                msg_length = int(msg_length)
+                msg = conn.recv(msg_length).decode(FORMAT)
+                if msg == DISCONNECT_MESSAGE:
+                    isConnected = False
+                print(f'[{addr}] {msg}')
+                # -------------------------------------------------------------------------------------------
+                ticket = Ticket(ticket_type=TicketPurpose.UPDATE_TABLE_RECORD,
+                                ticket_value=(addr, msg))
+                self.queue_message.put(ticket)
+                self.event_generate("<<CheckQueue>>")
+                # -------------------------------------------------------------------------------------------
+                conn.send('MSG received'.encode(FORMAT))
+
+        conn.close()
+
+    def create_frame_button(self) -> ttk.Frame:
+        """ Create and return a frame that contains a button and a label """
+        self.frame_button = ttk.Frame(self)
+        self.btn_download = ttk.Button(self.frame_button, text="Start", command=self.on_start_button_clicked)
+        self.lbl_status = ttk.Label(self.frame_button, background="white", anchor="center")
+
+        self.btn_download.pack(side='left', padx=10, pady=10)
+        self.lbl_status.pack(side='left', fill='x', expand=True, padx=10, pady=10)
+
+        return self.frame_button
+
+    def create_frame_table(self) -> ttk.Frame:
+        """ Create and return a frame that contains a treeview to show table """
+        columns = ('IP', 'port')
+
+        self.frame_table = ttk.Frame(self)
+        self.table_connection = ttk.Treeview(self.frame_table, columns=columns, show='headings')
+        self.table_connection.pack(fill='x', expand=YES, padx=10, pady=10)
+        self.table_connection.heading('IP', text='IP')
+        self.table_connection.heading('port', text='port')
+
+        self.table_connection.column("IP", minwidth=0, width=100, stretch=NO)
+
+        return self.frame_table
+
+    def create_frame_record(self) -> ttk.Frame:
+        columns = ('number', 'name', 'credit', 'bet', 'win')
+
+        self.frame_record = ttk.Frame(self)
+        self.table_record = ttk.Treeview(self.frame_record, columns=columns, show='headings')
+        self.table_record.pack(fill=BOTH, expand=YES, padx=10, pady=10)
+        self.table_record.heading('number', text='Number')
+        self.table_record.heading('name', text='Name')
+        self.table_record.heading('credit', text='Credit')
+        self.table_record.heading('bet', text='Bet')
+        self.table_record.heading('win', text='Win')
+
+        self.table_record.column("number", minwidth=0, width=80, stretch=NO)
+        self.table_record.column("name", minwidth=0, width=200, stretch=YES)
+        self.table_record.column("credit", minwidth=0, width=100, stretch=NO)
+        self.table_record.column("bet", minwidth=0, width=50, stretch=NO)
+        self.table_record.column("win", minwidth=0, width=50, stretch=NO)
+
+        return self.frame_record
+
+
+if __name__ == "__main__":
+    main_window = MainWindow()
+
+    main_window.mainloop()
