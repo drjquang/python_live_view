@@ -1,0 +1,46 @@
+# Date: Sun, 20-Jan-2024
+# Desc: This will convert unique string to timestamp
+# Info: Push with sample_no and winning_number, retrieve unique id, then
+#       Set that node with timestamp
+#       No need, order_by_childe game_no
+
+import firebase_admin
+from firebase_admin import credentials, db
+from collections import OrderedDict
+
+# Read the current to retrieve uid
+cred = credentials.Certificate('servicesAccountKey.json')
+
+try:
+    # Initialize the Firebase app
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://chatapp-80eeb-default-rtdb.firebaseio.com'
+    })
+
+    print("Successfully connected to Firebase!")
+
+    # Get a reference to the database service
+    database = db.reference()
+
+
+    # Read data from the RLG3/current/node_name
+    # result = database.child('RLG3/current').get()
+    # print(result['node_name'])
+    ref = database.child('RLG3').child('longmeter')
+    # result = ref.get()
+    # print(result)
+    snapshot = ref.order_by_child("game_no").limit_to_last(3).get()
+    print(snapshot)
+    game_no = []
+    winning_number = []
+    for val in snapshot.values():
+        game_no.append(val['game_no'])
+        winning_number.append(val['winning_number'])
+    print(game_no)
+    print(winning_number)
+    # for val in snapshot.values():
+    #     print(val)
+    #     print(val['game_no'])
+
+except Exception as e:
+    print(f"Failed to connect to Firebase. Error: {e}")
